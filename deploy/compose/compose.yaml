@@ -45,5 +45,12 @@ services:
         condition: service_healthy
     entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
     command: ["--bootstrap-server", "kafka:9092", "--create", "--if-not-exists", "--topic", "market.prices.v1", "--partitions", "3", "--replication-factor", "1"]
+  tracking-init:
+    image: apache/kafka:4.1.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
+    command: ["--bootstrap-server", "kafka:9092", "--create", "--if-not-exists", "--topic", "market.instrument-tracking.v1", "--partitions", "3", "--replication-factor", "1"]
 volumes:
   market-db:

@@ -14,14 +14,14 @@ Identity и Notifications в этом домене не участвуют. Др
 Вне обработчика цены: WebSocket lifecycle, управление набором инструментов, публикация
 в Kafka и очистка outbox. Они реализованы отдельными адаптерами и сценарием relay;
 см. [архитектуру](../../architecture/market-data.md) и [outbox-relay](outbox-relay.md).
-Динамический набор инструментов от Alerts и backfill пока не реализованы.
+Динамический набор описан отдельно в [instrument-tracking](instrument-tracking.md); backfill пока не реализован.
 
 ## Вход
 
 [Документация Binance Spot — Aggregate Trade Streams](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/ws-streams/~), проверено 2026-10-18.
 Поток `<symbol>@aggTrade`, raw-формат, время в миллисекундах по умолчанию.
 Микросекундный режим и combined-envelope в этой версии не поддерживаются.
-Адаптер подписывается через raw endpoint `/ws` на сконфигурированные пары.
+Адаптер подписывается через raw endpoint `/ws` на сконфигурированный или сохранённый динамический набор пар.
 
 Синтетический пример:
 

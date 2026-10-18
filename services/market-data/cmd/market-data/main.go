@@ -10,6 +10,7 @@ import (
 	"example.com/binance-alerts/services/market-data/internal/postgres"
 	"example.com/binance-alerts/services/market-data/internal/prices"
 	"example.com/binance-alerts/services/market-data/internal/relay"
+	"example.com/binance-alerts/services/market-data/internal/tracking"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
@@ -55,11 +56,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return store.Migrate(startCtx)
 	}
 	var schemaReady bool
-	if err = pool.QueryRow(startCtx, "SELECT to_regclass('outbox') IS NOT NULL").Scan(&schemaReady); err != nil {
+	if err = pool.QueryRow(startCtx, "SELECT to_regclass('outbox') IS NOT NULL AND to_regclass('instrument_tracking') IS NOT NULL AND to_regclass('tracking_rejections') IS NOT NULL").Scan(&schemaReady); err != nil {
 		return err
 	}
 	if !schemaReady {
-		return fmt.Errorf("outbox schema is missing; run market-data migrate")
+		return fmt.Errorf("database schema is missing; run market-data migrate")
 	}
 	publisher, err := kafkapub.New(cfg.Brokers, cfg.Topic)
 	if err != nil {
@@ -98,15 +99,47 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		}
 		return err
 	})
-	group.Go(func() error {
-		err := client.Run(workCtx)
-		if workCtx.Err() != nil {
-			return nil
-		}
-		return err
-	})
+	if cfg.TrackingMode == "dynamic" {
+		snapshots := make(chan tracking.Snapshot, 1)
+		group.Go(func() error {
+			defer close(snapshots)
+			err := tracking.Poll(workCtx, store, cfg.TrackingRefreshInterval, snapshots)
+			if workCtx.Err() != nil {
+				return nil
+			}
+			return err
+		})
+		group.Go(func() error {
+			err := tracking.Supervise(workCtx, snapshots, func(ctx context.Context, symbols []string, ready func(bool)) error {
+				reader := *client
+				reader.Symbols = symbols
+				reader.OnState = ready
+				return reader.Run(ctx)
+			}, sourceReady.Store, func(err error) { logger.Warn("tracking snapshot failed", "error", err) })
+			if workCtx.Err() != nil {
+				return nil
+			}
+			return err
+		})
+		group.Go(func() error {
+			handler := &kafkapub.TrackingHandler{Repository: store, RetryDelay: cfg.RetryDelay, OnError: func(err error) { logger.Warn("tracking consumer operation failed", "error", err) }}
+			err := kafkapub.RunTracking(workCtx, cfg.Brokers, cfg.TrackingGroup, cfg.TrackingTopic, handler)
+			if workCtx.Err() != nil {
+				return nil
+			}
+			return err
+		})
+	} else {
+		group.Go(func() error {
+			err := client.Run(workCtx)
+			if workCtx.Err() != nil {
+				return nil
+			}
+			return err
+		})
+	}
 	group.Go(func() error { return runRelay(workCtx, store, publisher, cfg, logger) })
-	logger.Info("market data started", "http", cfg.HTTPAddr, "symbols", cfg.Symbols, "topic", cfg.Topic)
+	logger.Info("market data started", "http", cfg.HTTPAddr, "symbols", cfg.Symbols, "topic", cfg.Topic, "tracking_mode", cfg.TrackingMode)
 	return group.Wait()
 }
 func pause(ctx context.Context, d time.Duration) bool {

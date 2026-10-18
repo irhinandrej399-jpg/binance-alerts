@@ -33,3 +33,28 @@ func TestRejectsInvalidConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestDynamicTrackingDoesNotRequireStaticSymbols(t *testing.T) {
+	c, err := load(map[string]string{"DATABASE_URL": "postgres://test", "TRACKING_MODE": "dynamic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.TrackingMode != "dynamic" || c.TrackingTopic != "market.instrument-tracking.v1" || c.TrackingGroup != "market-data.tracking.v1" || c.TrackingRefreshInterval != time.Second || len(c.Symbols) != 0 {
+		t.Fatalf("config=%+v", c)
+	}
+	c, err = load(map[string]string{"DATABASE_URL": "postgres://test", "TRACKING_MODE": "dynamic", "SYMBOLS": "BTCUSDT"})
+	if err != nil || len(c.Symbols) != 0 {
+		t.Fatalf("dynamic mode leaked static symbols: %+v err=%v", c, err)
+	}
+}
+func TestRejectsInvalidTrackingConfiguration(t *testing.T) {
+	for _, values := range []map[string]string{
+		{"DATABASE_URL": "postgres://test", "SYMBOLS": "BTCUSDT", "TRACKING_MODE": "other"},
+		{"DATABASE_URL": "postgres://test", "TRACKING_MODE": "dynamic", "TRACKING_REFRESH_INTERVAL": "0s"},
+		{"DATABASE_URL": "postgres://test", "TRACKING_MODE": "dynamic", "TRACKING_TOPIC": "market.prices.v1"},
+	} {
+		if _, err := load(values); err == nil {
+			t.Fatalf("accepted invalid config: %v", values)
+		}
+	}
+}

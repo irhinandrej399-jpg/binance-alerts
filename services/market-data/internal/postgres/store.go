@@ -14,6 +14,9 @@ import (
 //go:embed migrations/001_outbox.sql
 var schema string
 
+//go:embed migrations/002_instrument_tracking.sql
+var trackingSchema string
+
 type Store struct{ Pool *pgxpool.Pool }
 
 func (s *Store) Migrate(ctx context.Context) error {
@@ -27,6 +30,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	if _, err = tx.Exec(ctx, schema); err != nil {
 		return fmt.Errorf("migrate outbox: %w", err)
+	}
+	if _, err = tx.Exec(ctx, trackingSchema); err != nil {
+		return fmt.Errorf("migrate tracking: %w", err)
 	}
 	return tx.Commit(ctx)
 }
